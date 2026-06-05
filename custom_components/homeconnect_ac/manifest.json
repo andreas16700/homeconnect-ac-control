@@ -1,0 +1,13 @@
+{
+  "domain": "homeconnect_ac",
+  "name": "Home Connect AC",
+  "version": "1.1.0",
+  "codeowners": ["@andreas16700"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/andreas16700/homeconnect-ac-control",
+  "integration_type": "hub",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/andreas16700/homeconnect-ac-control/issues",
+  "requirements": ["httpx>=0.28.1"]
+}

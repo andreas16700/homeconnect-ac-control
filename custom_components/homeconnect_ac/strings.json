@@ -1,0 +1,32 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Home Connect AC",
+        "description": "Enter your Home Connect API credentials from your acctl config.json. Leave Client Secret empty for app-auth (PKCE) credentials.",
+        "data": {
+          "client_id": "Client ID",
+          "client_secret": "Client Secret (empty for app-auth)",
+          "access_token": "Access Token",
+          "refresh_token": "Refresh Token"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Home Connect AC",
+        "description": "Your tokens have expired. Run 'uv run acctl app-auth' to get fresh tokens, then paste them here.",
+        "data": {
+          "access_token": "Access Token",
+          "refresh_token": "Refresh Token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Home Connect API",
+      "invalid_auth": "Invalid authentication credentials",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Integration is already configured"
+    }
+  }
+}
