@@ -25,13 +25,27 @@ declared in the manifest and installed automatically by Home Assistant.
 
 ## Requirements
 
-You need Home Connect OAuth credentials with **write** scopes
-(`Control`, `WriteAppliance`, `Settings`, `Monitor`, …). The developer-portal
-read-only scopes are **not** enough to set temperature/swing/boost. These are
-produced by the companion [`acctl`](https://github.com/andreas16700/ac-local) CLI
-via `acctl app-auth` (the official app's PKCE client), which gives you a
-`client_id`, `access_token`, and `refresh_token`. Leave **Client Secret** empty
-for app-auth (PKCE) credentials.
+Authentication uses the official Home Connect app's OAuth client (full
+**write** scopes — `Control`, `WriteAppliance`, `Settings`, `Monitor`, …),
+which is gated by SingleKey ID + hCaptcha and only accepts the app's
+`hcauth://` redirect. Because Home Assistant (headless) can't capture a custom
+URL scheme, a small **macOS helper app** does the sign-in and hands you a
+credential blob to paste in.
+
+### Sign in with the macOS helper
+
+The helper lives in the companion repo
+[`ac-local`](https://github.com/andreas16700/ac-local):
+
+```sh
+git clone https://github.com/andreas16700/ac-local && cd ac-local
+./build_auth_app.sh        # builds HomeConnectACAuth.app (needs Xcode CLT)
+open HomeConnectACAuth.app
+```
+
+The app opens your browser, you log in with SingleKey ID, it captures the
+redirect and exchanges it for tokens, then shows a single credential blob with
+a **Copy** button. Click **Copy** — you'll paste it into HA next.
 
 ## Installation (HACS)
 
@@ -40,8 +54,7 @@ for app-auth (PKCE) credentials.
    **Integration**.
 2. Install **Home Connect AC** and restart Home Assistant.
 3. **Settings → Devices & Services → Add Integration → Home Connect AC**.
-4. Paste your `client_id`, `access_token`, and `refresh_token` (and
-   `client_secret` only if you have a non-PKCE developer client).
+4. Paste the credential blob from the macOS helper app and submit.
 
 ### Manual installation
 
@@ -51,9 +64,9 @@ Copy `custom_components/homeconnect_ac/` into your Home Assistant
 ## Re-authentication
 
 Access tokens last ~24h and are refreshed automatically using the refresh
-token. If the refresh token itself expires, the integration triggers a re-auth
-flow — run `acctl app-auth` again to get fresh tokens and paste them when
-prompted.
+token. If the refresh token itself expires, the integration raises a re-auth
+prompt — re-run **HomeConnectACAuth.app**, click **Copy**, and paste the new
+blob when prompted.
 
 ## Notes
 

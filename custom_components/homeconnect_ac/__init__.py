@@ -11,7 +11,7 @@ import httpx
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .client import HomeConnectClient
 
@@ -92,6 +92,12 @@ async def async_setup_entry(
                 retry_after // 60,
             )
         raise ConfigEntryNotReady(f"API error {err.response.status_code}") from err
+    except RuntimeError as err:
+        await client.async_close()
+        # Dead refresh token -> trigger the re-auth (paste) flow in the UI.
+        if "refresh token" in str(err).lower():
+            raise ConfigEntryAuthFailed(str(err)) from err
+        raise ConfigEntryNotReady(f"Failed to connect: {err}") from err
     except Exception as err:
         await client.async_close()
         raise ConfigEntryNotReady(f"Failed to connect: {err}") from err

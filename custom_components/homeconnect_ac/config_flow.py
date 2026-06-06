@@ -1,7 +1,15 @@
-"""Config flow for Home Connect AC."""
+"""Config flow for Home Connect AC.
+
+Authentication is performed by the companion macOS app (HomeConnectACAuth.app):
+it runs the SingleKey ID login + PKCE token exchange and produces a single
+base64 credential blob. The user pastes that blob here.
+"""
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import logging
 from typing import Any
 
@@ -10,19 +18,48 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
 
 from .client import HomeConnectClient
-
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required("client_id"): str,
-        vol.Optional("client_secret", default=""): str,
-        vol.Required("access_token"): str,
-        vol.Required("refresh_token"): str,
+CONF_CREDENTIALS = "credentials"
+
+STEP_SCHEMA = vol.Schema({vol.Required(CONF_CREDENTIALS): str})
+
+_REQUIRED_KEYS = ("client_id", "access_token", "refresh_token")
+
+
+def _parse_blob(blob: str) -> dict[str, str]:
+    """Decode the credential blob from the macOS auth app.
+
+    Accepts the base64 blob (preferred) or raw JSON. Returns a dict with
+    client_id, client_secret, access_token, refresh_token. Raises ValueError
+    if the blob is malformed or missing required fields.
+    """
+    text = (blob or "").strip()
+    if not text:
+        raise ValueError("empty")
+
+    data: Any = None
+    # Try base64 first (what the app emits), then fall back to raw JSON.
+    try:
+        decoded = base64.b64decode(text, validate=True)
+        data = json.loads(decoded)
+    except (binascii.Error, ValueError):
+        try:
+            data = json.loads(text)
+        except ValueError as err:
+            raise ValueError("not_decodable") from err
+
+    if not isinstance(data, dict) or any(not data.get(k) for k in _REQUIRED_KEYS):
+        raise ValueError("missing_fields")
+
+    return {
+        "client_id": data["client_id"],
+        "client_secret": data.get("client_secret", ""),
+        "access_token": data["access_token"],
+        "refresh_token": data["refresh_token"],
     }
-)
 
 
 class HomeConnectACConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -34,34 +71,38 @@ class HomeConnectACConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle the initial step."""
+        """Initial setup: paste the credential blob from the auth app."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
-                appliances = await self._validate_credentials(user_input)
+                data = _parse_blob(user_input[CONF_CREDENTIALS])
+                appliances = await self._validate_credentials(data)
+            except ValueError:
+                errors["base"] = "invalid_code"
             except RuntimeError:
                 errors["base"] = "invalid_auth"
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _LOGGER.exception("Unexpected error during setup")
                 errors["base"] = "unknown"
             else:
                 ac_count = sum(
                     1 for a in appliances if a.get("type") == "AirConditioner"
                 )
-                title = f"Home Connect AC ({ac_count} device{'s' if ac_count != 1 else ''})"
-                return self.async_create_entry(title=title, data=user_input)
+                title = (
+                    f"Home Connect AC ({ac_count} device"
+                    f"{'s' if ac_count != 1 else ''})"
+                )
+                return self.async_create_entry(title=title, data=data)
 
         return self.async_show_form(
-            step_id="user",
-            data_schema=STEP_USER_DATA_SCHEMA,
-            errors=errors,
+            step_id="user", data_schema=STEP_SCHEMA, errors=errors
         )
 
     async def async_step_reauth(
         self, entry_data: dict[str, Any]
     ) -> ConfigFlowResult:
-        """Handle re-authentication when tokens expire."""
+        """Handle re-authentication when the refresh token dies."""
         self._reauth_entry = self.hass.config_entries.async_get_entry(
             self.context["entry_id"]
         )
@@ -70,38 +111,29 @@ class HomeConnectACConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Confirm re-auth with new tokens."""
+        """Re-auth: paste a fresh credential blob from the auth app."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
             assert self._reauth_entry is not None
-            # Merge: keep client_id/secret from existing entry, update tokens
-            new_data = {
-                **self._reauth_entry.data,
-                "access_token": user_input["access_token"],
-                "refresh_token": user_input["refresh_token"],
-            }
             try:
-                await self._validate_credentials(new_data)
+                data = _parse_blob(user_input[CONF_CREDENTIALS])
+                await self._validate_credentials(data)
+            except ValueError:
+                errors["base"] = "invalid_code"
             except RuntimeError:
                 errors["base"] = "invalid_auth"
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _LOGGER.exception("Unexpected error during re-auth")
                 errors["base"] = "unknown"
             else:
                 return self.async_update_reload_and_abort(
-                    self._reauth_entry, data=new_data
+                    self._reauth_entry,
+                    data={**self._reauth_entry.data, **data},
                 )
 
         return self.async_show_form(
-            step_id="reauth_confirm",
-            data_schema=vol.Schema(
-                {
-                    vol.Required("access_token"): str,
-                    vol.Required("refresh_token"): str,
-                }
-            ),
-            errors=errors,
+            step_id="reauth_confirm", data_schema=STEP_SCHEMA, errors=errors
         )
 
     async def _validate_credentials(self, data: dict[str, Any]) -> list[dict]:

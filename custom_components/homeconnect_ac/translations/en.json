@@ -3,30 +3,27 @@
     "step": {
       "user": {
         "title": "Home Connect AC",
-        "description": "Enter your Home Connect API credentials from your acctl config.json. Leave Client Secret empty for app-auth (PKCE) credentials.",
+        "description": "Run the **HomeConnect AC Auth** macOS app to sign in, then click **Copy** in that app and paste the result below.",
         "data": {
-          "client_id": "Client ID",
-          "client_secret": "Client Secret (empty for app-auth)",
-          "access_token": "Access Token",
-          "refresh_token": "Refresh Token"
+          "credentials": "Credentials from the auth app"
         }
       },
       "reauth_confirm": {
         "title": "Re-authenticate Home Connect AC",
-        "description": "Your tokens have expired. Run 'uv run acctl app-auth' to get fresh tokens, then paste them here.",
+        "description": "Your session expired. Run the **HomeConnect AC Auth** macOS app again, click **Copy**, and paste the result below.",
         "data": {
-          "access_token": "Access Token",
-          "refresh_token": "Refresh Token"
+          "credentials": "Credentials from the auth app"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to Home Connect API",
-      "invalid_auth": "Invalid authentication credentials",
+      "invalid_code": "Couldn't read those credentials. Copy the full value from the auth app and try again.",
+      "invalid_auth": "These credentials were rejected. Re-run the auth app to get a fresh sign-in.",
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "Integration is already configured"
+      "already_configured": "Integration is already configured",
+      "reauth_successful": "Re-authentication was successful"
     }
   }
 }
