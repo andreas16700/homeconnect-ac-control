@@ -45,6 +45,7 @@ class HomeConnectClient:
         self._on_token_refresh = on_token_refresh
         self._client: httpx.AsyncClient | None = None
         self._sse_client: httpx.AsyncClient | None = None
+        self._refresh_client: httpx.AsyncClient | None = None
         self._token_expires_at: float = self._parse_jwt_exp(access_token)
 
     @staticmethod
@@ -81,6 +82,9 @@ class HomeConnectClient:
         )
         # Pre-create SSE client to avoid SSL context init on the event loop
         self._sse_client = httpx.AsyncClient(timeout=None)
+        # Pre-create a bare client for token refresh (no default headers) so the
+        # refresh path never builds an SSL context on the event loop.
+        self._refresh_client = httpx.AsyncClient(timeout=30.0)
 
     async def async_open(self) -> None:
         """Open the underlying httpx client."""
@@ -88,6 +92,9 @@ class HomeConnectClient:
 
     async def async_close(self) -> None:
         """Close the underlying httpx clients."""
+        if self._refresh_client:
+            await self._refresh_client.aclose()
+            self._refresh_client = None
         if self._sse_client:
             await self._sse_client.aclose()
             self._sse_client = None
@@ -108,7 +115,10 @@ class HomeConnectClient:
         """Refresh the access token and notify the callback."""
         try:
             tokens = await refresh_token_raw(
-                self.client_id, self.client_secret, self.refresh_token
+                self.client_id,
+                self.client_secret,
+                self.refresh_token,
+                client=self._refresh_client,
             )
         except httpx.HTTPStatusError as e:
             raise RuntimeError(

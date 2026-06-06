@@ -1,7 +1,7 @@
 {
   "domain": "homeconnect_ac",
   "name": "Home Connect AC",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "codeowners": ["@andreas16700"],
   "config_flow": true,
   "dependencies": [],

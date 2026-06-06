@@ -16,8 +16,14 @@ async def refresh_token_raw(
     client_id: str,
     client_secret: str,
     refresh_token: str,
+    client: httpx.AsyncClient | None = None,
 ) -> dict:
-    """Refresh access token using raw params."""
+    """Refresh access token using raw params.
+
+    Pass an existing ``client`` to avoid creating an httpx.AsyncClient on the
+    event loop (the SSL-context init is a blocking call HA flags as a warning).
+    When omitted, a temporary client is created (fine for CLI/off-loop use).
+    """
     data: dict[str, str] = {
         "grant_type": "refresh_token",
         "refresh_token": refresh_token,
@@ -28,7 +34,17 @@ async def refresh_token_raw(
     else:
         data["client_id"] = client_id
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(TOKEN_URL, data=data)
+    if client is not None:
+        # Send only form headers; don't leak the caller's Bearer/Accept defaults.
+        resp = await client.post(
+            TOKEN_URL,
+            data=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "*/*"},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async with httpx.AsyncClient() as temp_client:
+        resp = await temp_client.post(TOKEN_URL, data=data)
         resp.raise_for_status()
         return resp.json()
