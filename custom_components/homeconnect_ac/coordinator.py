@@ -91,6 +91,10 @@ def _empty_device_data() -> dict[str, Any]:
         "connected": None,
         "display_light": None,
         "program": None,
+        # Track active (running) and selected (queued) separately; the displayed
+        # mode prefers active, since external/remote changes update active only.
+        "_active_program": None,
+        "_selected_program": None,
         "target_temperature": None,
         "fan_speed_percentage": None,
         "fan_speed_mode": None,
@@ -184,10 +188,21 @@ class HomeConnectACCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
         device = self.data[ha_id]
         updated = False
 
-        # Program selection event
-        if event_type == "EVENT" and key.endswith(".Program.Selected"):
-            # value is like "...Program.Cool"
-            device["program"] = value
+        # Program events. The cloud reports the running program via ActiveProgram
+        # and the queued one via SelectedProgram. A change made on the remote/app
+        # updates ActiveProgram only, so prefer it for the displayed mode.
+        # value is like "...Program.Cool", or "" when no program is active.
+        if key.endswith("ActiveProgram") or key.endswith(".Program.Active"):
+            device["_active_program"] = value or None
+            device["program"] = (
+                device.get("_active_program") or device.get("_selected_program")
+            )
+            updated = True
+        elif key.endswith("SelectedProgram") or key.endswith(".Program.Selected"):
+            device["_selected_program"] = value or None
+            device["program"] = (
+                device.get("_active_program") or device.get("_selected_program")
+            )
             updated = True
         elif key in _KEY_MAP:
             field, transform = _KEY_MAP[key]
@@ -263,17 +278,42 @@ class HomeConnectACCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
         except httpx.HTTPStatusError:
             _LOGGER.debug("Failed to get status for %s", ha_id)
 
+        # Selected (queued) program — options here seed temp/fan; key is the
+        # fallback mode when nothing is actively running.
+        selected_key = None
         try:
-            program = await self.client.get_selected_program(ha_id)
-            if program:
-                device_data["program"] = program.get("key")
-                for opt in program.get("options", []):
-                    okey = opt.get("key", "")
-                    oval = opt.get("value")
-                    if okey in _KEY_MAP:
-                        field, transform = _KEY_MAP[okey]
-                        device_data[field] = _transform(oval, transform)
+            selected = await self.client.get_selected_program(ha_id)
+            if selected:
+                selected_key = selected.get("key")
+                self._apply_program_options(device_data, selected)
         except httpx.HTTPStatusError:
             _LOGGER.debug("Failed to get selected program for %s", ha_id)
 
+        # Active (running) program — authoritative for the displayed mode and the
+        # live option values; reflects changes made on the remote/app. 404 = idle.
+        active_key = None
+        try:
+            active = await self.client.get_active_program(ha_id)
+            if active:
+                active_key = active.get("key")
+                self._apply_program_options(device_data, active)
+        except httpx.HTTPStatusError:
+            _LOGGER.debug("Failed to get active program for %s", ha_id)
+
+        device_data["_selected_program"] = selected_key
+        device_data["_active_program"] = active_key
+        device_data["program"] = active_key or selected_key
+
         return device_data
+
+    @staticmethod
+    def _apply_program_options(
+        device_data: dict[str, Any], program: dict[str, Any]
+    ) -> None:
+        """Map a program's options (temp, fan, etc.) into device_data."""
+        for opt in program.get("options", []):
+            okey = opt.get("key", "")
+            oval = opt.get("value")
+            if okey in _KEY_MAP:
+                field, transform = _KEY_MAP[okey]
+                device_data[field] = _transform(oval, transform)
